@@ -7,8 +7,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const SECRET = process.env.SECRET_KEY || 'changeme';
 
-const FORM_URL = 'https://hld555.infusionsoft.com/app/form/process/8eee5f6c3f44d738b4416cd1f4c8b8c3';
-const FORM_PAGE_URL = 'https://hld555.infusionsoft.com'; // Base URL to establish session
+const FORM_PAGE_URL = 'https://hld555.infusionsoft.com/app/form/process/8eee5f6c3f44d738b4416cd1f4c8b8c3';
 
 app.get('/', (req, res) => {
   res.json({ status: 'Keap Resubscribe Service Running' });
@@ -52,44 +51,38 @@ app.post('/resubscribe', async (req, res) => {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     );
 
-    // Navigate to base URL first to establish session/cookies
-    await page.goto(FORM_PAGE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Navigate to the form page directly
+    console.log(`[${new Date().toISOString()}] Navigating to form page...`);
+    await page.goto(FORM_PAGE_URL, { 
+      waitUntil: 'networkidle2', 
+      timeout: 30000 
+    });
 
-    // Now POST the form data directly
-    const result = await page.evaluate(async (formUrl, email, firstName) => {
-      const params = new URLSearchParams();
-      params.append('inf_form_xid', '8eee5f6c3f44d738b4416cd1f4c8b8c3');
-      params.append('inf_form_name', 'Web Form submitted');
-      params.append('infusionsoft_version', '1.70.0.939939');
-      params.append('inf_field_FirstName', firstName || '');
-      params.append('inf_field_Email', email);
-      params.append('inf-sbt', '');
+    // Wait for email field to be available
+    await page.waitForSelector('#inf_field_Email', { timeout: 10000 });
 
-      const response = await fetch(formUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: params.toString(),
-        redirect: 'follow'
-      });
+    // Fill in the form fields
+    await page.type('#inf_field_FirstName', first_name || 'Customer');
+    await page.type('#inf_field_Email', email);
 
-      return {
-        status: response.status,
-        ok: response.ok,
-        url: response.url
-      };
-    }, FORM_URL, email, first_name || '');
+    console.log(`[${new Date().toISOString()}] Submitting form for ${email}...`);
 
-    console.log(`[${new Date().toISOString()}] Result for ${email}: HTTP ${result.status}`);
+    // Click submit and wait for navigation
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }),
+      page.click('button[type="submit"]')
+    ]);
+
+    const finalUrl = page.url();
+    console.log(`[${new Date().toISOString()}] Final URL after submit: ${finalUrl}`);
 
     await browser.close();
 
-    if (result.status === 200) {
-      return res.json({ success: true, email, status: result.status });
-    } else {
-      return res.status(500).json({ success: false, email, status: result.status, url: result.url });
-    }
+    return res.json({ 
+      success: true, 
+      email, 
+      final_url: finalUrl 
+    });
 
   } catch (err) {
     console.error(`[${new Date().toISOString()}] Error for ${email}:`, err.message);
